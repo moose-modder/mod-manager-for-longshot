@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
-  import { open } from "@tauri-apps/plugin-dialog";
+  import { getCurrentWebview } from "@tauri-apps/api/webview";
+  import { ask, open } from "@tauri-apps/plugin-dialog";
 
   type Game = { dir: string; romfs: string; mods: string; version: string | null };
   type TableState = "idle" | "waiting" | "building" | "ready" | "none" | "error";
@@ -19,6 +20,7 @@
     status: TableStatus;
     settings_path: string;
     made_by: string;
+    running: boolean;
   };
   type Mod = {
     name: string;
@@ -30,17 +32,46 @@
     animations: number;
     own_size_table: boolean;
   };
-  type ModsView = { mods: Mod[]; table: string | null; stamp: { rules: number; made_by: string } | null };
+  type Conflict = { used: string; hidden: string; files: string[] };
+  type ModsView = {
+    mods: Mod[];
+    table: string | null;
+    stamp: { rules: number; made_by: string } | null;
+    conflicts: Conflict[];
+  };
+  type Report = {
+    installed: { folder: string; enabled: boolean; files: number }[];
+    existing: string[];
+    notes: string[];
+  };
 
   let view = $state<StateView | null>(null);
   let mods = $state<ModsView | null>(null);
   let error = $state<string | null>(null);
+  let notice = $state<string[] | null>(null);
   let toggling = $state<string | null>(null);
   let choosing = $state(false);
+  let installing = $state(false);
+  let dragging = $state(false);
   let showLog = $state(false);
+  let openConflicts = $state<Record<string, boolean>>({});
 
   const status = $derived(view?.status);
   const onCount = $derived(mods ? mods.mods.filter((m) => m.enabled).length : 0);
+  /** by name, so a mod stays in its place when it's turned off (its folder gets a '-'); for the mods that are on,
+   * that's the game's order */
+  const byName = $derived(
+    [...(mods?.mods ?? [])].sort((a, b) => {
+      const [x, y] = [a.name.toLowerCase(), b.name.toLowerCase()];
+      return x < y ? -1 : x > y ? 1 : 0;
+    }),
+  );
+  /** a mod's files that another mod's replace, by its folder */
+  const hiddenFiles = $derived.by(() => {
+    const out: Record<string, number> = {};
+    for (const c of mods?.conflicts ?? []) out[c.hidden] = (out[c.hidden] ?? 0) + c.files.length;
+    return out;
+  });
 
   const HEADLINES: Record<TableState, string> = {
     idle: "Size table",
@@ -98,6 +129,55 @@
     }
   }
 
+  /** Installs the zips and folders at `paths`, asking first when that would replace mods already there. */
+  async function install(paths: string[]) {
+    if (!view?.game || !paths.length || installing) return;
+    error = null;
+    notice = null;
+    installing = true;
+    try {
+      let report = await invoke<Report>("install_mods", { paths, replace: false });
+      if (report.existing.length) {
+        const names = report.existing.map((n) => `"${n}"`).join(", ");
+        const one = report.existing.length === 1;
+        const yes = await ask(
+          `${names} ${one ? "is" : "are"} already installed. Replace ${one ? "it" : "them"} with the new ` +
+            `${one ? "one" : "ones"}? The installed ${one ? "copy is" : "copies are"} deleted.`,
+          { title: "Replace mods?", kind: "warning", okLabel: "Replace", cancelLabel: "Keep what's there" },
+        );
+        if (!yes) return;
+        report = await invoke<Report>("install_mods", { paths, replace: true });
+      }
+      notice = [
+        ...report.installed.map(
+          (i) =>
+            `Installed ${leaf(i.folder.replace(/^-/, ""))} (${plural(i.files, "file")})` +
+            (i.enabled ? "" : ", off"),
+        ),
+        ...report.notes,
+      ];
+      await loadMods();
+    } catch (e) {
+      error = String(e);
+    } finally {
+      installing = false;
+    }
+  }
+
+  async function addZips() {
+    const picked = await open({
+      multiple: true,
+      title: "Add mods from zips",
+      filters: [{ name: "Zip archives", extensions: ["zip"] }],
+    });
+    if (picked) await install(Array.isArray(picked) ? picked : [picked]);
+  }
+
+  async function addFolder() {
+    const picked = await open({ directory: true, title: "Add a mod's folder" });
+    if (typeof picked === "string") await install([picked]);
+  }
+
   function rebuild() {
     invoke("rebuild_now").catch((e) => (error = String(e)));
   }
@@ -120,15 +200,29 @@
   const parent = (path: string) => path.split("/").slice(0, -1).join("/");
   const time = (secs: number) =>
     new Date(secs * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const SHOWN = 200;
 
   onMount(() => {
     load();
-    const stop = listen<TableStatus>("table", (e) => {
-      if (view) view.status = e.payload;
-      loadMods();
-    });
+    const stops = [
+      listen<TableStatus>("table", (e) => {
+        if (view) view.status = e.payload;
+        loadMods();
+      }),
+      listen<boolean>("game", (e) => {
+        if (view) view.running = e.payload;
+      }),
+      getCurrentWebview().onDragDropEvent((e) => {
+        if (e.payload.type === "enter" || e.payload.type === "over") dragging = !!view?.game;
+        else if (e.payload.type === "leave") dragging = false;
+        else if (e.payload.type === "drop") {
+          dragging = false;
+          install(e.payload.paths);
+        }
+      }),
+    ];
     return () => {
-      stop.then((f) => f());
+      for (const stop of stops) stop.then((f) => f());
     };
   });
 </script>
@@ -152,10 +246,28 @@
     {/if}
   </header>
 
+  {#if view?.running}
+    <div class="banner info" role="status">
+      <span class="grow">
+        <strong>Longshot is running.</strong> It reads its mods when it starts, so changes you make now show after you
+        restart the game.
+      </span>
+    </div>
+  {/if}
+
   {#if error}
     <div class="banner" role="alert">
       <span class="grow">{error}</span>
       <button class="link" onclick={() => (error = null)}>Dismiss</button>
+    </div>
+  {/if}
+
+  {#if installing}
+    <div class="banner info" role="status"><span class="grow">Installing…</span></div>
+  {:else if notice}
+    <div class="banner ok" role="status">
+      <span class="grow">{#each notice as line}<span class="line">{line}</span>{/each}</span>
+      <button class="link" onclick={() => (notice = null)}>Dismiss</button>
     </div>
   {/if}
 
@@ -198,14 +310,16 @@
     </section>
 
     <section class="card mods">
-      <div class="row">
+      <div class="row wrap">
         <h2 class="grow">Mods <span class="muted">{onCount} of {mods?.mods.length ?? 0} on</span></h2>
+        <button onclick={addZips} disabled={installing}>Add zip…</button>
+        <button onclick={addFolder} disabled={installing}>Add folder…</button>
         <button onclick={() => openFolder("mods")}>Open mods folder</button>
       </div>
       {#if mods && mods.mods.length}
         <ul>
-          {#each mods.mods as m (m.folder)}
-            <li class:off={!m.enabled}>
+          {#each byName as m (m.folder)}
+            <li class="mod" class:off={!m.enabled}>
               <label class="switch">
                 <input
                   type="checkbox"
@@ -222,6 +336,11 @@
                   {details(m)}{#if m.folder.includes("/")}{" · in "}{parent(m.folder)}{/if}
                 </div>
               </div>
+              {#if hiddenFiles[m.folder]}
+                <span class="tag warn" title="A mod that sorts later changes the same files: see Conflicts">
+                  {plural(hiddenFiles[m.folder], "file")} not used
+                </span>
+              {/if}
               {#if m.own_size_table}
                 <span class="tag" title="It came with its own size table: its larger entries are kept in the one for all mods">
                   own table
@@ -230,14 +349,49 @@
             </li>
           {/each}
         </ul>
+        <p class="muted small hint">Drop a mod's zip or folder anywhere in this window to install it.</p>
       {:else if mods}
         <div class="empty">
-          <p><strong>No mods yet.</strong> Put each mod in the mods folder as its own folder, with its <code>romfs</code> folder inside:</p>
-          <pre>mods/Some Mod/romfs/…</pre>
-          <p>It shows up here, and the size table is updated by itself.</p>
+          <p><strong>No mods yet.</strong> Drop a mod's zip or folder here, or use Add zip… / Add folder….</p>
+          <p>
+            You can also put a mod in the mods folder yourself, as its own folder with its <code>romfs</code> folder
+            inside: <code>mods/Some Mod/romfs/…</code>
+          </p>
         </div>
       {/if}
     </section>
+
+    {#if mods?.conflicts.length}
+      <section class="card conflicts">
+        <h2>Conflicts <span class="muted">{mods.conflicts.length}</span></h2>
+        <p class="muted small">
+          When two mods change the same file, the game uses the one from the mod that sorts last. To change which
+          one, rename the mods' folders so they sort the other way (<code>01-…</code>, <code>02-…</code>), or turn
+          one off.
+        </p>
+        <ul>
+          {#each mods.conflicts as c (c.used + "|" + c.hidden)}
+            {@const key = c.used + "|" + c.hidden}
+            <li class="conflict">
+              <div class="row">
+                <div class="grow">
+                  <strong>{leaf(c.used)}</strong> is used over <strong>{leaf(c.hidden)}</strong> for
+                  {plural(c.files.length, "file")}
+                </div>
+                <button class="link small" onclick={() => (openConflicts[key] = !openConflicts[key])}>
+                  {openConflicts[key] ? "Hide files" : "Show files"}
+                </button>
+              </div>
+              {#if openConflicts[key]}
+                <pre>{c.files.slice(0, SHOWN).join("\n")}{c.files.length > SHOWN
+                    ? `\n… and ${c.files.length - SHOWN} more`
+                    : ""}</pre>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
 
     <footer class="muted small">
       Longshot reads its mods when it starts: restart the game after changing them. A mod whose folder name starts
@@ -245,3 +399,7 @@
     </footer>
   {/if}
 </main>
+
+{#if dragging}
+  <div class="drop" aria-hidden="true"><div>Drop to install</div></div>
+{/if}

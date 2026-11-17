@@ -29,14 +29,24 @@ pub enum Phase {
 }
 
 /// Watches `mods` and everything in it, sending [`Request::Changed`] for changes outside the table's own folder
-/// (the rebuild writes there). Dropping the watcher stops it.
+/// (the rebuild writes there) and hidden folders (an install puts a mod together in one; Longshot skips them).
+/// Dropping the watcher stops it.
 pub fn watch(mods: &Path, to: Sender<Request>) -> notify::Result<RecommendedWatcher> {
-    let table = mods.join(TABLE_MOD);
+    let root = mods.to_owned();
+    let ignored = move |p: &Path| {
+        p.strip_prefix(&root)
+            .ok()
+            .and_then(|rel| rel.components().next())
+            .is_some_and(|first| {
+                let first = first.as_os_str().to_string_lossy();
+                first == TABLE_MOD || first.starts_with('.')
+            })
+    };
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else {
             return;
         };
-        let ours = !event.paths.is_empty() && event.paths.iter().all(|p| p.starts_with(&table));
+        let ours = !event.paths.is_empty() && event.paths.iter().all(|p| ignored(p));
         if !matches!(event.kind, EventKind::Access(_)) && !ours {
             let _ = to.send(Request::Changed);
         }
@@ -122,7 +132,14 @@ mod tests {
         let watcher = watch(&dir, to).unwrap();
         std::thread::sleep(Duration::from_millis(200));
 
+        // the table's writes, and a mod put together in a hidden folder
         std::fs::write(dir.join(TABLE_MOD).join("romfs").join("t.zs"), b"x").unwrap();
+        std::fs::create_dir_all(dir.join(".install").join("BMod").join("romfs")).unwrap();
+        std::fs::write(
+            dir.join(".install").join("BMod").join("romfs").join("b.zs"),
+            b"x",
+        )
+        .unwrap();
         assert!(requests.recv_timeout(Duration::from_millis(700)).is_err());
 
         std::fs::create_dir_all(dir.join("AMod").join("romfs")).unwrap();

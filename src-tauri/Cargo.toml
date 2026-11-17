@@ -22,3 +22,5 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tauri = { version = "2.12.5", features = [] }
 tauri-plugin-dialog = "2.8.4"
+# Reading mods' zips (only the pure-Rust ways they're compressed)
+zip = { version = "9.6.1", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64", "lzma"] }

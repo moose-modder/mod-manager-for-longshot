@@ -5,10 +5,14 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod conflicts;
 mod game;
+mod install;
+mod running;
 mod watch;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -93,6 +97,8 @@ struct App {
     status: Arc<Mutex<TableStatus>>,
     requests: Mutex<Sender<Request>>,
     watcher: Mutex<Option<RecommendedWatcher>>,
+    /// Whether Longshot is running (looked at every few seconds).
+    running: Arc<AtomicBool>,
 }
 
 impl App {
@@ -220,6 +226,8 @@ struct StateView {
     status: TableStatus,
     settings_path: PathBuf,
     made_by: &'static str,
+    /// Longshot is running: changes show after a restart.
+    running: bool,
 }
 
 fn state_view(state: &App) -> StateView {
@@ -229,6 +237,7 @@ fn state_view(state: &App) -> StateView {
         status: state.status.lock().expect("status lock").clone(),
         settings_path: state.settings_path.clone(),
         made_by: MADE_BY,
+        running: state.running.load(Ordering::Relaxed),
     }
 }
 
@@ -255,6 +264,8 @@ struct ModsView {
     /// The size table installed for all mods, if there is one.
     table: Option<PathBuf>,
     stamp: Option<Stamp>,
+    /// Mods that change the same files, between the mods that are on.
+    conflicts: Vec<conflicts::Conflict>,
 }
 
 #[tauri::command]
@@ -264,6 +275,7 @@ async fn list_mods(state: State<'_, App>) -> Result<ModsView> {
         mods: mods::list(&game.mods).map_err(err)?,
         table: mods::size_table(&game.mods),
         stamp: mods::stamp(&game.mods),
+        conflicts: conflicts::conflicts(&game.mods)?,
     })
 }
 
@@ -274,6 +286,25 @@ async fn set_mod_enabled(state: State<'_, App>, folder: String, enabled: bool) -
     let new = mods::set_enabled(&game.mods, &folder, enabled).map_err(err)?;
     state.request(Request::Changed);
     Ok(new)
+}
+
+/// Installs the mods in the zips and folders the user dropped or picked ([`install::install`]): when some are
+/// there already, nothing is installed and the report names them, unless `replace`.
+#[tauri::command]
+async fn install_mods(
+    state: State<'_, App>,
+    paths: Vec<PathBuf>,
+    replace: bool,
+) -> Result<install::Report> {
+    let game = state.game()?;
+    let report =
+        tauri::async_runtime::spawn_blocking(move || install::install(&game.mods, &paths, replace))
+            .await
+            .map_err(err)??;
+    if !report.installed.is_empty() {
+        state.request(Request::Changed);
+    }
+    Ok(report)
 }
 
 #[tauri::command]
@@ -314,6 +345,7 @@ fn main() {
                 status: Arc::default(),
                 requests: Mutex::new(to_worker),
                 watcher: Mutex::new(None),
+                running: Arc::default(),
             };
             let (handle, game, status) = (
                 app.handle().clone(),
@@ -324,6 +356,25 @@ fn main() {
                 watch::worker(requests, watch::QUIET, |phase| {
                     on_phase(&handle, &game, &status, phase)
                 })
+            });
+            // Longshot running or not: the page is told when that changes. It reads its mods when it starts,
+            // so when it stops the table is made again (one it held open may not have been written).
+            let (handle, running, to) = (
+                app.handle().clone(),
+                state.running.clone(),
+                state.requests.lock().expect("requests lock").clone(),
+            );
+            std::thread::spawn(move || {
+                loop {
+                    let now = running::longshot_running();
+                    if running.swap(now, Ordering::Relaxed) != now {
+                        let _ = handle.emit("game", now);
+                        if !now {
+                            let _ = to.send(Request::Now);
+                        }
+                    }
+                    std::thread::sleep(running::EVERY);
+                }
             });
             if let Some(dir) = Settings::load(&state.settings_path).game_dir
                 && let Err(e) = game::find(&dir).and_then(|g| state.use_game(g))
@@ -356,6 +407,7 @@ fn main() {
             choose_game_folder,
             list_mods,
             set_mod_enabled,
+            install_mods,
             rebuild_now,
             open_folder,
         ])

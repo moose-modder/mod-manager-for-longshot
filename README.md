@@ -21,14 +21,22 @@ the mods that are on, from the game's own table and each mod's files, and instal
 1. Run **Mod Manager for Longshot** and choose your Longshot folder: the one with `LongshotLauncher.exe`, or the
    game folder inside it (with `longshot.exe` and `romfs`). A `mods` folder is made beside the game if there isn't
    one yet.
-2. Put each mod in the `mods` folder as its own folder, with the mod's `romfs` folder inside:
+2. Drop a mod's zip or folder onto the window (or use **Add zip…** / **Add folder…**). The mod is found whatever
+   its layout (`romfs` at the top of the zip, a folder or two down, or kept as emulators and Atmosphere keep them)
+   and installed as `mods/<name>/romfs`. Only the mod's `romfs`, `exefs` and `cheats` folders are copied. A zip
+   holding several mods (usually versions to choose from) installs them all turned off: turn on the one you want.
+   Installing a mod that's already there asks before replacing it, and keeps it on or off as it was.
+   `.7z` and `.rar` archives can't be opened yet: extract them and drop the folder.
+3. Or put the mod in the `mods` folder yourself, as its own folder with its `romfs` folder inside:
    `mods/Some Mod/romfs/...`. Mods kept as emulators keep them work too (`mods/contents/<title id>/Some Mod/romfs`).
-3. The mod shows up in the list, and the size table is updated a moment later. Use the switch to turn a mod off
+4. The mod shows up in the list, and the size table is updated a moment later. Use the switch to turn a mod off
    (its folder gets a `-` in front of its name, which Longshot skips) or on again.
-4. Restart the game: Longshot reads its mods when it starts.
+5. Restart the game: Longshot reads its mods when it starts. While Longshot is running the manager says so, and
+   when the game closes it makes the table again.
 
-When two mods change the same file, the one whose folder sorts last wins. Name folders `01-...`, `02-...` to set the
-order.
+When two mods change the same file, the one whose folder sorts last wins. The **Conflicts** list shows which mod is
+used over which, for which files, and marks the mods with files that aren't used. Name folders `01-...`, `02-...`
+to set the order, or turn one off.
 
 The manager remembers the folder in `settings.json` in its settings folder (`%APPDATA%\io.github.moosemodder.longshotmods`
 on Windows).

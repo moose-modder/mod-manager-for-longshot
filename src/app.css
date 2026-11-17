@@ -11,6 +11,8 @@
   --bad: #c0392b;
   --warn-bg: #fff4dc;
   --bad-bg: #fde8e6;
+  --info-bg: #e6eef7;
+  --ok-bg: #e5f3ea;
   color-scheme: light;
 }
 
@@ -28,6 +30,8 @@
     --bad: #ef6b5d;
     --warn-bg: #3a3220;
     --bad-bg: #432523;
+    --info-bg: #1f2d3b;
+    --ok-bg: #1f3427;
     color-scheme: dark;
   }
 }
@@ -85,7 +89,7 @@ pre {
 
 header,
 .row,
-li {
+li.mod {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -94,6 +98,10 @@ li {
 .grow {
   flex: 1;
   min-width: 0;
+}
+
+.row.wrap {
+  flex-wrap: wrap;
 }
 
 .sub {
@@ -175,6 +183,18 @@ button.link.small {
   padding: 10px 14px;
 }
 
+.banner.info {
+  background: var(--info-bg);
+}
+
+.banner.ok {
+  background: var(--ok-bg);
+}
+
+.banner .line {
+  display: block;
+}
+
 .note {
   margin-top: 10px;
   padding: 8px 10px;
@@ -254,6 +274,19 @@ li.off .name {
   white-space: nowrap;
 }
 
+.tag.warn {
+  border-color: var(--wait);
+  color: var(--text);
+}
+
+.hint {
+  margin: 10px 0 0;
+}
+
+.conflicts ul {
+  margin-top: 8px;
+}
+
 .empty {
   margin-top: 12px;
   padding: 14px;
@@ -317,4 +350,23 @@ footer {
 
 .switch input:disabled {
   cursor: default;
+}
+
+/* a mod's zip or folder dragged over the window */
+.drop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  pointer-events: none;
+}
+
+.drop div {
+  padding: 36px 56px;
+  border: 3px dashed var(--accent);
+  border-radius: 14px;
+  background: var(--card);
+  font-size: 20px;
+  font-weight: 600;
 }
