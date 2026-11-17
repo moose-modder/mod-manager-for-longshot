@@ -1,0 +1,16 @@
+/target
+
+# npm packages, the built web page, Tauri's generated schemas
+/node_modules/
+/dist/
+/src-tauri/gen/
+
+# Anything from the game is never committed: mods, archives, models, textures, tables
+/mods/
+*.zs
+*.bfres
+*.bntx
+*.sarc
+*.pack
+*.bphcl
+*.rsizetable

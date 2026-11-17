@@ -1,0 +1,24 @@
+[package]
+name = "mod-manager-for-longshot"
+description = "Mod Manager for Longshot: the mods in Longshot's mods folder, on and off, with one resource size table for all of them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+# The mods folder and the size table, shared with Hookshot Mod Studio: Cargo.lock pins the commit; take the
+# newest with `cargo update -p modstudio-mods`.
+modstudio-mods = { git = "https://github.com/moose-modder/hookshot-mod-studio", branch = "main" }
+notify = "8.2.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-dialog = "2.8.4"

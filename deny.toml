@@ -1,0 +1,49 @@
+# cargo-deny: every dependency must have a known, GPL-3.0-compatible license, come from crates.io (or the one git
+# source below) and be built from source. Checked in CI (.github/workflows/ci.yml); locally: cargo deny check
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+# "Unmaintained" notices for compile-time macro crates (no code of theirs runs in the app), kept until the crates
+# that use them move on:
+ignore = [
+    # paste, through texture2ddecoder (in modstudio-formats, which modstudio-mods uses)
+    { id = "RUSTSEC-2024-0436", reason = "build-time macro of texture2ddecoder" },
+    # proc-macro-error, through gtk-rs 0.18 (glib-macros), Tauri's Linux window stack
+    { id = "RUSTSEC-2024-0370", reason = "build-time macro of Tauri's GTK 3 stack (Linux)" },
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unlicense",
+    "GPL-3.0-or-later",
+    # The app (Tauri): cssparser, selectors, dtoa-short (HTML/CSS parsing in tauri-utils) and option-ext. File-level
+    # copyleft, compatible with the GPL-3.0 (MPL-2.0 section 3.3).
+    "MPL-2.0",
+    # notify (watching the mods folder): public domain dedication
+    "CC0-1.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# modstudio-mods: the mods folder and the size table, shared with Hookshot Mod Studio
+allow-git = ["https://github.com/moose-modder/hookshot-mod-studio"]

@@ -1,0 +1,320 @@
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #1c2228;
+  --muted: #5d6873;
+  --line: #dde1e6;
+  --accent: #b7861f;
+  --accent-text: #ffffff;
+  --ok: #2f8a4f;
+  --wait: #b7861f;
+  --bad: #c0392b;
+  --warn-bg: #fff4dc;
+  --bad-bg: #fde8e6;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14191e;
+    --card: #1d242b;
+    --text: #e6e9ec;
+    --muted: #96a1ac;
+    --line: #2e3740;
+    --accent: #e9b949;
+    --accent-text: #1b2228;
+    --ok: #5cc27f;
+    --wait: #e9b949;
+    --bad: #ef6b5d;
+    --warn-bg: #3a3220;
+    --bad-bg: #432523;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+}
+
+main {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 20px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+p {
+  margin: 4px 0 0;
+}
+
+code,
+pre {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12.5px;
+}
+
+pre {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+header,
+.row,
+li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.sub {
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.muted {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.small {
+  font-size: 12.5px;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  padding: 9px 16px;
+  margin-top: 14px;
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: normal;
+  text-align: left;
+}
+
+button.link.small {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.welcome {
+  padding: 22px 24px;
+}
+
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--bad-bg);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.note.warn {
+  background: var(--warn-bg);
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.table.ready .dot,
+.table.none .dot {
+  background: var(--ok);
+}
+
+.table.waiting .dot,
+.table.building .dot {
+  background: var(--wait);
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+.table.error .dot {
+  background: var(--bad);
+}
+
+.table.error {
+  border-color: var(--bad);
+}
+
+@keyframes pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none !important;
+  }
+}
+
+ul {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+li {
+  padding: 10px 2px;
+  border-top: 1px solid var(--line);
+}
+
+li.off .name {
+  color: var(--muted);
+}
+
+.name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.empty {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+
+footer {
+  padding: 0 4px;
+}
+
+/* the on/off switch: a checkbox, drawn */
+.switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: none;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 11px;
+  background: var(--line);
+  transition: background 0.15s;
+  pointer-events: none;
+}
+
+.switch span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.switch input:checked + span {
+  background: var(--ok);
+}
+
+.switch input:checked + span::after {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switch input:disabled {
+  cursor: default;
+}

@@ -1,0 +1,81 @@
+name: Release
+
+# A release for a version tag: push `v0.1.0` (matching the version in Cargo.toml, package.json and
+# src-tauri/tauri.conf.json) and this builds the Windows installer and a portable zip and attaches them, with the
+# source, to the GitHub release of that tag. Nothing from the game is needed or included.
+#
+# Run it by hand (Actions > Release > Run workflow) for a test build: the files are kept as the run's artifact and
+# no release is made.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import json, os, re, sys
+          cargo = re.search(r'^version = "(.*)"', open("Cargo.toml").read(), re.M).group(1)
+          npm = json.load(open("package.json"))["version"]
+          tauri = json.load(open("src-tauri/tauri.conf.json"))["version"]
+          if len({cargo, npm, tauri}) != 1:
+              sys.exit(f"versions differ: Cargo.toml {cargo}, package.json {npm}, tauri.conf.json {tauri}")
+          ref = os.environ["GITHUB_REF_NAME"]
+          if os.environ["GITHUB_REF_TYPE"] == "tag" and ref != f"v{cargo}":
+              sys.exit(f"the tag {ref} doesn't match the version {cargo}: tag v{cargo}")
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"VERSION={cargo}\n")
+          print(f"version {cargo}")
+          EOF
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      # rustup installs the toolchain pinned in rust-toolchain.toml
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      # The installer (NSIS) and the program itself
+      - run: npx tauri build --bundles nsis
+
+      - name: Files
+        shell: bash
+        run: |
+          mkdir -p out/portable
+          cp "target/release/mod-manager-for-longshot.exe" "out/portable/Mod Manager for Longshot.exe"
+          cp LICENSE README.md out/portable/
+          (cd out/portable && 7z a "../ModManagerForLongshot-$VERSION-windows-portable.zip" . > /dev/null)
+          cp target/release/bundle/nsis/*-setup.exe "out/ModManagerForLongshot-$VERSION-windows-setup.exe"
+          git archive --format zip --prefix "mod-manager-for-longshot-$VERSION/" -o "out/mod-manager-for-longshot-$VERSION-source.zip" HEAD
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModManagerForLongshot-${{ env.VERSION }}-windows
+          path: out/*.*
+
+      - name: GitHub release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(out/*.zip out/*.exe)
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "Mod Manager for Longshot $VERSION" --generate-notes
+          fi
