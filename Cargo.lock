@@ -1950,20 +1950,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mod-manager-for-longshot"
-version = "0.1.0"
-dependencies = [
- "modstudio-mods",
- "notify",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "zip",
-]
-
-[[package]]
 name = "modstudio-formats"
 version = "0.5.0"
 source = "git+https://github.com/moose-modder/hookshot-mod-studio?branch=main#75b278c42d08d9e436ca6b022df98543463969d4"
@@ -2329,6 +2315,20 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "oot-remake-mod-manager"
+version = "0.1.0"
+dependencies = [
+ "modstudio-mods",
+ "notify",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "zip",
+]
 
 [[package]]
 name = "option-ext"

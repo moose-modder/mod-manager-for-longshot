@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Mod Manager for Longshot",
+  "productName": "OoT Remake Mod Manager",
   "version": "0.1.0",
   "identifier": "io.github.moosemodder.longshotmods",
   "build": {
@@ -29,8 +29,8 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
-    "shortDescription": "Mods for Longshot, with one size table for all of them",
-    "longDescription": "Point it at your Longshot folder and drop mods into the mods folder: it turns mods on and off and keeps one resource size table for every mod that is on.",
+    "shortDescription": "Mods for Longshot and Hookshot, with one size table for all of them",
+    "longDescription": "Point it at your Longshot or Hookshot folder (or at the game's files and an emulator's mods folder) and drop mods into the mods folder: it turns mods on and off and keeps one resource size table for every mod that is on.",
     "license": "GPL-3.0-or-later"
   }
 }

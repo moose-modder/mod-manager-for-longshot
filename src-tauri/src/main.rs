@@ -1,5 +1,6 @@
-//! Mod Manager for Longshot: Longshot's mods folder, its mods on and off, and one resource size table for every
-//! mod that is on, rebuilt whenever the mods folder changes. The mods folder's rules and the table come from
+//! OoT Remake Mod Manager: the game's mods folder (Longshot's, Hookshot's, or any other chosen with the game's
+//! files), its mods on and off, and one resource size table for every mod that is on, rebuilt whenever the mods
+//! folder changes. The mods folder's rules and the table come from
 //! `modstudio-mods`, shared with Hookshot Mod Studio, so both build the same table. The window is a web page
 //! (`src/`); the table's state reaches it as `table` events.
 
@@ -12,7 +13,6 @@ mod running;
 mod watch;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -26,7 +26,7 @@ use game::Game;
 use watch::{Phase, Request};
 
 /// This app and its version, as the size table's stamp names the app that built it.
-const MADE_BY: &str = concat!("Mod Manager for Longshot ", env!("CARGO_PKG_VERSION"));
+const MADE_BY: &str = concat!("OoT Remake Mod Manager ", env!("CARGO_PKG_VERSION"));
 
 /// Errors reach the page as their message.
 type Result<T> = std::result::Result<T, String>;
@@ -39,9 +39,14 @@ fn err(e: impl std::fmt::Display) -> String {
 /// (to try things without changing the real settings).
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Settings {
-    /// The game folder, found again at each start.
+    /// Longshot's or Hookshot's game folder, found again at each start.
     #[serde(default)]
     game_dir: Option<PathBuf>,
+    /// Or the game's files and the mods folder, chosen on their own.
+    #[serde(default)]
+    romfs: Option<PathBuf>,
+    #[serde(default)]
+    mods: Option<PathBuf>,
 }
 
 impl Settings {
@@ -97,8 +102,8 @@ struct App {
     status: Arc<Mutex<TableStatus>>,
     requests: Mutex<Sender<Request>>,
     watcher: Mutex<Option<RecommendedWatcher>>,
-    /// Whether Longshot is running (looked at every few seconds).
-    running: Arc<AtomicBool>,
+    /// Longshot or Hookshot, when one is running (looked at every few seconds).
+    running: Arc<Mutex<Option<&'static str>>>,
 }
 
 impl App {
@@ -107,7 +112,7 @@ impl App {
             .lock()
             .expect("game lock")
             .clone()
-            .ok_or_else(|| "no Longshot folder chosen yet".to_owned())
+            .ok_or_else(|| "no game folder chosen yet".to_owned())
     }
 
     fn request(&self, request: Request) {
@@ -226,8 +231,8 @@ struct StateView {
     status: TableStatus,
     settings_path: PathBuf,
     made_by: &'static str,
-    /// Longshot is running: changes show after a restart.
-    running: bool,
+    /// Longshot or Hookshot, when one is running: changes show after a restart.
+    running: Option<&'static str>,
 }
 
 fn state_view(state: &App) -> StateView {
@@ -237,7 +242,7 @@ fn state_view(state: &App) -> StateView {
         status: state.status.lock().expect("status lock").clone(),
         settings_path: state.settings_path.clone(),
         made_by: MADE_BY,
-        running: state.running.load(Ordering::Relaxed),
+        running: *state.running.lock().expect("running lock"),
     }
 }
 
@@ -246,13 +251,30 @@ fn get_state(state: State<'_, App>) -> StateView {
     state_view(&state)
 }
 
-/// Uses the Longshot folder the user picked: the launcher's folder, the game folder, or its romfs or mods folder.
+/// Uses the Longshot or Hookshot folder the user picked: Longshot's launcher folder, the game folder, or its romfs
+/// or mods folder.
 #[tauri::command]
 async fn choose_game_folder(state: State<'_, App>, dir: PathBuf) -> Result<StateView> {
     let game = game::find(&dir)?;
     state.use_game(game.clone())?;
     Settings {
-        game_dir: Some(game.dir),
+        game_dir: game.dir,
+        ..Settings::default()
+    }
+    .save(&state.settings_path)?;
+    Ok(state_view(&state))
+}
+
+/// Uses the game's files and the mods folder the user picked on their own (an emulator's mods, game files kept
+/// elsewhere).
+#[tauri::command]
+async fn choose_folders(state: State<'_, App>, romfs: PathBuf, mods: PathBuf) -> Result<StateView> {
+    let game = game::chosen(&romfs, &mods)?;
+    state.use_game(game.clone())?;
+    Settings {
+        romfs: Some(game.romfs),
+        mods: Some(game.mods),
+        ..Settings::default()
     }
     .save(&state.settings_path)?;
     Ok(state_view(&state))
@@ -312,11 +334,16 @@ fn rebuild_now(state: State<'_, App>) {
     state.request(Request::Now);
 }
 
-/// Opens the mods folder (`which`: "mods") or the game folder ("game") in the file manager.
+/// Opens the mods folder (`which`: "mods"), the game folder ("game"; the game's files when there is none) or the
+/// game's files ("romfs") in the file manager.
 #[tauri::command]
 fn open_folder(state: State<'_, App>, which: String) -> Result<()> {
     let game = state.game()?;
-    let dir = if which == "game" { game.dir } else { game.mods };
+    let dir = match which.as_str() {
+        "game" => game.dir.unwrap_or(game.romfs),
+        "romfs" => game.romfs,
+        _ => game.mods,
+    };
     let program = if cfg!(windows) {
         "explorer"
     } else {
@@ -357,8 +384,8 @@ fn main() {
                     on_phase(&handle, &game, &status, phase)
                 })
             });
-            // Longshot running or not: the page is told when that changes. It reads its mods when it starts,
-            // so when it stops the table is made again (one it held open may not have been written).
+            // Longshot or Hookshot running or not: the page is told when that changes. They read their mods when
+            // they start, so when one stops the table is made again (one it held open may not have been written).
             let (handle, running, to) = (
                 app.handle().clone(),
                 state.running.clone(),
@@ -366,28 +393,33 @@ fn main() {
             );
             std::thread::spawn(move || {
                 loop {
-                    let now = running::longshot_running();
-                    if running.swap(now, Ordering::Relaxed) != now {
+                    let now = running::running();
+                    let before =
+                        std::mem::replace(&mut *running.lock().expect("running lock"), now);
+                    if before != now {
                         let _ = handle.emit("game", now);
-                        if !now {
+                        if now.is_none() {
                             let _ = to.send(Request::Now);
                         }
                     }
                     std::thread::sleep(running::EVERY);
                 }
             });
-            if let Some(dir) = Settings::load(&state.settings_path).game_dir
-                && let Err(e) = game::find(&dir).and_then(|g| state.use_game(g))
-            {
-                *state.problem.lock().expect("problem lock") = Some(format!(
-                    "The Longshot folder chosen before can't be used: {e}"
-                ));
+            let settings = Settings::load(&state.settings_path);
+            let before = match (settings.game_dir, settings.romfs, settings.mods) {
+                (Some(dir), _, _) => Some(game::find(&dir)),
+                (None, Some(romfs), Some(mods)) => Some(game::chosen(&romfs, &mods)),
+                _ => None,
+            };
+            if let Some(Err(e)) = before.map(|g| g.and_then(|g| state.use_game(g))) {
+                *state.problem.lock().expect("problem lock") =
+                    Some(format!("The folders chosen before can't be used: {e}"));
             }
             app.manage(state);
 
             let builder =
                 tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
-                    .title("Mod Manager for Longshot")
+                    .title("OoT Remake Mod Manager")
                     .inner_size(940.0, 700.0)
                     .min_inner_size(640.0, 480.0);
             // MODMANAGER_WEBVIEW_ARGS: extra WebView2 switches, e.g. "--remote-debugging-port=9334" to check
@@ -405,6 +437,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             choose_game_folder,
+            choose_folders,
             list_mods,
             set_mod_enabled,
             install_mods,

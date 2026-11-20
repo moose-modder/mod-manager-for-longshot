@@ -5,7 +5,15 @@
   import { getCurrentWebview } from "@tauri-apps/api/webview";
   import { ask, open } from "@tauri-apps/plugin-dialog";
 
-  type Game = { dir: string; romfs: string; mods: string; version: string | null };
+  /** dir and program: Longshot's or Hookshot's game folder; none when the game's files and the mods folder were
+   * chosen on their own (an emulator) */
+  type Game = {
+    dir: string | null;
+    romfs: string;
+    mods: string;
+    program: string | null;
+    version: string | null;
+  };
   type TableState = "idle" | "waiting" | "building" | "ready" | "none" | "error";
   type TableStatus = {
     state: TableState;
@@ -20,7 +28,8 @@
     status: TableStatus;
     settings_path: string;
     made_by: string;
-    running: boolean;
+    /** Longshot or Hookshot, when one is running */
+    running: string | null;
   };
   type Mod = {
     name: string;
@@ -51,12 +60,18 @@
   let notice = $state<string[] | null>(null);
   let toggling = $state<string | null>(null);
   let choosing = $state(false);
+  /** the folders being chosen again (the welcome card shown over the mods) */
+  let changing = $state(false);
   let installing = $state(false);
   let dragging = $state(false);
   let showLog = $state(false);
   let openConflicts = $state<Record<string, boolean>>({});
 
   const status = $derived(view?.status);
+  /** the program running, when it's the one whose mods these are (or the folders were chosen on their own) */
+  const running = $derived(
+    view?.running && (!view.game?.program || view.game.program === view.running) ? view.running : null,
+  );
   const onCount = $derived(mods ? mods.mods.filter((m) => m.enabled).length : 0);
   /** by name, so a mod stays in its place when it's turned off (its folder gets a '-'); for the mods that are on,
    * that's the game's order */
@@ -101,12 +116,27 @@
   }
 
   async function chooseFolder() {
-    const dir = await open({ directory: true, title: "Choose your Longshot folder" });
+    const dir = await open({ directory: true, title: "Choose your Longshot or Hookshot folder" });
     if (typeof dir !== "string") return;
+    await use("choose_game_folder", { dir });
+  }
+
+  /** The game's files and the mods folder, chosen on their own (an emulator, game files kept elsewhere). */
+  async function chooseFolders() {
+    const romfs = await open({ directory: true, title: "Choose the game's files (the romfs folder)" });
+    if (typeof romfs !== "string") return;
+    const mods = await open({ directory: true, title: "Now choose the mods folder" });
+    if (typeof mods !== "string") return;
+    await use("choose_folders", { romfs, mods });
+  }
+
+  async function use(command: string, args: Record<string, string>) {
     error = null;
     choosing = true;
     try {
-      view = await invoke<StateView>("choose_game_folder", { dir });
+      view = await invoke<StateView>(command, args);
+      changing = false;
+      mods = null;
       await loadMods();
     } catch (e) {
       error = String(e);
@@ -182,7 +212,7 @@
     invoke("rebuild_now").catch((e) => (error = String(e)));
   }
 
-  function openFolder(which: "mods" | "game") {
+  function openFolder(which: "mods" | "game" | "romfs") {
     invoke("open_folder", { which }).catch((e) => (error = String(e)));
   }
 
@@ -209,15 +239,15 @@
         if (view) view.status = e.payload;
         loadMods();
       }),
-      listen<boolean>("game", (e) => {
+      listen<string | null>("game", (e) => {
         if (view) view.running = e.payload;
       }),
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type === "enter" || e.payload.type === "over") dragging = !!view?.game;
+        if (e.payload.type === "enter" || e.payload.type === "over") dragging = !!view?.game && !changing;
         else if (e.payload.type === "leave") dragging = false;
         else if (e.payload.type === "drop") {
           dragging = false;
-          install(e.payload.paths);
+          if (!changing) install(e.payload.paths);
         }
       }),
     ];
@@ -230,26 +260,37 @@
 <main>
   <header>
     <div class="grow">
-      <h1>Mod Manager for Longshot</h1>
-      {#if view?.game}
+      <h1>OoT Remake Mod Manager</h1>
+      {#if view?.game?.dir}
         <p class="sub">
-          {#if view.game.version}Longshot {view.game.version}{" · "}{/if}<button
+          {#if view.game.program}{view.game.program}{#if view.game.version}{" "}{view.game.version}{/if}{" · "}{/if}<button
             class="link"
             onclick={() => openFolder("game")}
             title="Open the game folder">{view.game.dir}</button
           >
         </p>
+      {:else if view?.game}
+        <p class="sub">
+          Game files: <button class="link" onclick={() => openFolder("romfs")} title="Open the game's files"
+            >{view.game.romfs}</button
+          >
+        </p>
+        <p class="sub">
+          Mods: <button class="link" onclick={() => openFolder("mods")} title="Open the mods folder"
+            >{view.game.mods}</button
+          >
+        </p>
       {/if}
     </div>
-    {#if view?.game}
-      <button onclick={chooseFolder} disabled={choosing}>Change folder</button>
+    {#if view?.game && !changing}
+      <button onclick={() => (changing = true)} disabled={choosing}>Change folders</button>
     {/if}
   </header>
 
-  {#if view?.running}
+  {#if running}
     <div class="banner info" role="status">
       <span class="grow">
-        <strong>Longshot is running.</strong> It reads its mods when it starts, so changes you make now show after you
+        <strong>{running} is running.</strong> It reads its mods when it starts, so changes you make now show after you
         restart the game.
       </span>
     </div>
@@ -271,17 +312,27 @@
     </div>
   {/if}
 
-  {#if view && !view.game}
+  {#if view && (!view.game || changing)}
     <section class="card welcome">
-      <h2>Where's Longshot?</h2>
+      <h2>Where's the game?</h2>
       <p>
-        Choose the folder Longshot is installed in (the one with <code>LongshotLauncher.exe</code>), or the game
-        folder inside it. A <code>mods</code> folder is made beside the game if there isn't one yet.
+        Choose the folder Longshot or Hookshot is installed in: for Longshot, the one with
+        <code>LongshotLauncher.exe</code> or the game folder inside it; for Hookshot, the one with
+        <code>hookshot.exe</code>. A <code>mods</code> folder is made beside the game if there isn't one yet.
       </p>
-      {#if view.problem}<p class="note warn">{view.problem}</p>{/if}
+      {#if view.problem && !view.game}<p class="note warn">{view.problem}</p>{/if}
       <button class="primary" onclick={chooseFolder} disabled={choosing}>
-        {choosing ? "Looking…" : "Choose your Longshot folder"}
+        {choosing ? "Looking…" : "Choose your Longshot or Hookshot folder"}
       </button>
+      <p class="other">
+        Playing on an emulator, or keeping the game's files somewhere else? Choose the game's files (the
+        <code>romfs</code> folder) and the mods folder yourself. For an emulator, choose the folder it keeps this
+        game's mods in (usually named after the game's title ID), so the size table goes beside them.
+      </p>
+      <div class="row wrap">
+        <button onclick={chooseFolders} disabled={choosing}>Choose the game's files and mods folder…</button>
+        {#if changing}<button class="link" onclick={() => (changing = false)}>Cancel</button>{/if}
+      </div>
     </section>
   {:else if view?.game && status}
     <section class="card table {status.state}" aria-live="polite">
@@ -350,6 +401,12 @@
           {/each}
         </ul>
         <p class="muted small hint">Drop a mod's zip or folder anywhere in this window to install it.</p>
+        {#if !view.game.program}
+          <p class="note">
+            Turning a mod off puts a <code>-</code> in front of its folder's name. Longshot and Hookshot skip those
+            folders; an emulator may not, so check its own list of mods too.
+          </p>
+        {/if}
       {:else if mods}
         <div class="empty">
           <p><strong>No mods yet.</strong> Drop a mod's zip or folder here, or use Add zip… / Add folder….</p>
@@ -394,8 +451,8 @@
     {/if}
 
     <footer class="muted small">
-      Longshot reads its mods when it starts: restart the game after changing them. A mod whose folder name starts
-      with <code>-</code> is off.
+      The game reads its mods when it starts: restart it after changing them. A mod whose folder name starts with
+      <code>-</code> is off.
     </footer>
   {/if}
 </main>

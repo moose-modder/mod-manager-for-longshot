@@ -1,6 +1,6 @@
 [package]
-name = "mod-manager-for-longshot"
-description = "Mod Manager for Longshot: the mods in Longshot's mods folder, on and off, with one resource size table for all of them"
+name = "oot-remake-mod-manager"
+description = "OoT Remake Mod Manager: the mods for Longshot, Hookshot or an emulator, on and off, with one resource size table for all of them"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

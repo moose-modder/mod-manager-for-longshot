@@ -1,10 +1,12 @@
 name: Release
 
 # A release for a version tag: push `v0.1.0` (matching the version in Cargo.toml, package.json and
-# src-tauri/tauri.conf.json) and this builds the Windows installer and a portable zip and attaches them, with the
-# source, to the GitHub release of that tag. Nothing from the game is needed or included.
+# src-tauri/tauri.conf.json). This builds:
+# - Windows: the installer and a portable zip;
+# - Linux: an AppImage (runs as it is) and a .deb (Debian, Ubuntu and the like).
+# It attaches them, with the source, to the GitHub release of that tag. Nothing from the game is needed or included.
 #
-# Run it by hand (Actions > Release > Run workflow) for a test build: the files are kept as the run's artifact and
+# Run it by hand (Actions > Release > Run workflow) for a test build: the files are kept as the runs' artifacts and
 # no release is made.
 on:
   push:
@@ -15,15 +17,17 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Version
+      - id: version
         shell: bash
         run: |
-          python - <<'EOF'
+          python3 - <<'EOF'
           import json, os, re, sys
           cargo = re.search(r'^version = "(.*)"', open("Cargo.toml").read(), re.M).group(1)
           npm = json.load(open("package.json"))["version"]
@@ -33,10 +37,18 @@ jobs:
           ref = os.environ["GITHUB_REF_NAME"]
           if os.environ["GITHUB_REF_TYPE"] == "tag" and ref != f"v{cargo}":
               sys.exit(f"the tag {ref} doesn't match the version {cargo}: tag v{cargo}")
-          with open(os.environ["GITHUB_ENV"], "a") as f:
-              f.write(f"VERSION={cargo}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"version={cargo}\n")
           print(f"version {cargo}")
           EOF
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -55,27 +67,79 @@ jobs:
         shell: bash
         run: |
           mkdir -p out/portable
-          cp "target/release/mod-manager-for-longshot.exe" "out/portable/Mod Manager for Longshot.exe"
+          cp "target/release/oot-remake-mod-manager.exe" "out/portable/OoT Remake Mod Manager.exe"
           cp LICENSE README.md out/portable/
-          (cd out/portable && 7z a "../ModManagerForLongshot-$VERSION-windows-portable.zip" . > /dev/null)
-          cp target/release/bundle/nsis/*-setup.exe "out/ModManagerForLongshot-$VERSION-windows-setup.exe"
-          git archive --format zip --prefix "mod-manager-for-longshot-$VERSION/" -o "out/mod-manager-for-longshot-$VERSION-source.zip" HEAD
+          (cd out/portable && 7z a "../OoTRemakeModManager-$VERSION-windows-portable.zip" . > /dev/null)
+          cp target/release/bundle/nsis/*-setup.exe "out/OoTRemakeModManager-$VERSION-windows-setup.exe"
+          git archive --format zip --prefix "oot-remake-mod-manager-$VERSION/" -o "out/oot-remake-mod-manager-$VERSION-source.zip" HEAD
           ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ModManagerForLongshot-${{ env.VERSION }}-windows
+          name: OoTRemakeModManager-${{ env.VERSION }}-windows
           path: out/*.*
 
-      - name: GitHub release
-        if: github.ref_type == 'tag'
+  linux:
+    needs: version
+    # the oldest runner, so the programs run on older systems too (they need its glibc or newer)
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The app's window (Tauri) needs WebKitGTK; the AppImage is put together with linuxdeploy (patchelf, FUSE)
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libfuse2 file
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      # rustup installs the toolchain pinned in rust-toolchain.toml
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      - run: npx tauri build --bundles appimage,deb
+
+      - name: Files
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          files=(out/*.zip out/*.exe)
+          mkdir -p out
+          cp target/release/bundle/appimage/*.AppImage "out/OoTRemakeModManager-$VERSION-linux-x86_64.AppImage"
+          cp target/release/bundle/deb/*.deb "out/OoTRemakeModManager-$VERSION-linux-amd64.deb"
+          chmod +x out/*.AppImage
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OoTRemakeModManager-${{ env.VERSION }}-linux
+          path: out/*.*
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, windows, linux]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: GitHub release
+        shell: bash
+        run: |
+          ls -la out
+          files=(out/*)
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "Mod Manager for Longshot $VERSION" --generate-notes
+            gh release create "$GITHUB_REF_NAME" "${files[@]}" --title "OoT Remake Mod Manager $VERSION" --generate-notes
           fi
